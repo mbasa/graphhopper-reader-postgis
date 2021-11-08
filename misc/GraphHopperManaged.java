@@ -18,61 +18,110 @@
 
 package com.graphhopper.http;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.graphhopper.GraphHopper;
-import com.graphhopper.reader.osm.GraphHopperOSM;
-import com.graphhopper.reader.postgis.GraphHopperPostgis;
-import com.graphhopper.spatialrules.SpatialRuleLookupHelper;
-import com.graphhopper.util.CmdArgs;
-import com.graphhopper.util.Helper;
-import com.graphhopper.util.Parameters;
+import com.graphhopper.GraphHopperConfig;
+import com.graphhopper.config.Profile;
+import com.graphhopper.gtfs.GraphHopperGtfs;
+import com.graphhopper.reader.postgis.*;
+import com.graphhopper.jackson.Jackson;
+import com.graphhopper.routing.weighting.custom.CustomProfile;
+import com.graphhopper.routing.weighting.custom.CustomWeighting;
+import com.graphhopper.util.CustomModel;
 import io.dropwizard.lifecycle.Managed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.io.File;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
-@Singleton
 public class GraphHopperManaged implements Managed {
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+    private final static Logger logger = LoggerFactory.getLogger(GraphHopperManaged.class);
     private final GraphHopper graphHopper;
 
-    @Inject
-    public GraphHopperManaged(CmdArgs configuration) {
-        
-    	if( !Helper.isEmpty(configuration.get("db.host",    "")) &&
-    		!Helper.isEmpty(configuration.get("db.port",     "")) &&
-    		!Helper.isEmpty(configuration.get("db.schema",   "")) &&
-    		!Helper.isEmpty(configuration.get("db.database", "")) &&
-    		!Helper.isEmpty(configuration.get("db.user",     "")) &&
-    		!Helper.isEmpty(configuration.get("db.passwd",   "")) ) {
+    public GraphHopperManaged(GraphHopperConfig configuration) {
+        if (configuration.has("gtfs.file")) {
+            graphHopper = new GraphHopperGtfs(configuration);
+        } 
+        else if(configuration.has("db.host")    && 
+        		configuration.has("db.port")    && 
+        		configuration.has("db.schema")  && 
+        		configuration.has("db.database")&&
+        		configuration.has("db.table")   && 
+        		configuration.has("db.user")    && 
+        		configuration.has("db.passwd") ) {
+        	logger.info("*** Using PostGIS Reader ***");
+        	graphHopper = new GraphHopperPostgis();
+        }
+        else {
+        	logger.info("*** Using Standard OSM ***");
+            graphHopper = new GraphHopper();            
+        }
 
-    		logger.info("Using GraphHopperPostGIS");
-    		graphHopper = new GraphHopperPostgis().forServer();
-    		graphHopper.init(configuration);
-    	}
-    	else {
-            graphHopper = new GraphHopperOSM(
-                    SpatialRuleLookupHelper.createLandmarkSplittingFeatureCollection(configuration.get(Parameters.Landmark.PREPARE + "split_area_location", ""))
-            ).forServer();
-            
-            SpatialRuleLookupHelper.buildAndInjectSpatialRuleIntoGH(graphHopper, configuration);
-            graphHopper.init(configuration);    		
-    	}
-    	
+        String customModelFolder = configuration.getString("custom_model_folder", "");
+        List<Profile> newProfiles = resolveCustomModelFiles(customModelFolder, configuration.getProfiles());
+        configuration.setProfiles(newProfiles);
+
+        graphHopper.init(configuration);
+    }
+
+    public static List<Profile> resolveCustomModelFiles(String customModelFolder, List<Profile> profiles) {
+        ObjectMapper yamlOM = Jackson.initObjectMapper(new ObjectMapper(new YAMLFactory()));
+        ObjectMapper jsonOM = Jackson.newObjectMapper();
+        List<Profile> newProfiles = new ArrayList<>();
+        for (Profile profile : profiles) {
+            if (!CustomWeighting.NAME.equals(profile.getWeighting())) {
+                newProfiles.add(profile);
+                continue;
+            }
+            Object cm = profile.getHints().getObject("custom_model", null);
+            if (cm != null) {
+                try {
+                    // custom_model can be an object tree (read from config) or an object (e.g. from tests)
+                    CustomModel customModel = jsonOM.readValue(jsonOM.writeValueAsBytes(cm), CustomModel.class);
+                    newProfiles.add(new CustomProfile(profile).setCustomModel(customModel));
+                    continue;
+                } catch (Exception ex) {
+                    throw new RuntimeException("Cannot load custom_model from " + cm + " for profile " + profile.getName(), ex);
+                }
+            }
+            String customModelFileName = profile.getHints().getString("custom_model_file", "");
+            if (customModelFileName.isEmpty())
+                throw new IllegalArgumentException("Missing 'custom_model' or 'custom_model_file' field in profile '"
+                        + profile.getName() + "'. To use default specify custom_model_file: empty");
+            if ("empty".equals(customModelFileName))
+                newProfiles.add(new CustomProfile(profile).setCustomModel(new CustomModel()));
+            else {
+                if (customModelFileName.contains(File.separator))
+                    throw new IllegalArgumentException("Use custom_model_folder for the custom_model_file parent");
+                // Somehow dropwizard makes it very hard to find out the folder of config.yml -> use an extra parameter for the folder
+                File file = Paths.get(customModelFolder).resolve(customModelFileName).toFile();
+                try {
+                    CustomModel customModel = (customModelFileName.endsWith(".json") ? jsonOM : yamlOM).readValue(file, CustomModel.class);
+                    newProfiles.add(new CustomProfile(profile).setCustomModel(customModel));
+                } catch (Exception ex) {
+                    throw new RuntimeException("Cannot load custom_model from location " + customModelFileName + " for profile " + profile.getName(), ex);
+                }
+            }
+        }
+        return newProfiles;
     }
 
     @Override
     public void start() {
         graphHopper.importOrLoad();
-        logger.info("loaded graph at:" + graphHopper.getGraphHopperLocation()
-                + ", data_reader_file:" + graphHopper.getDataReaderFile()
-                + ", flag_encoders:" + graphHopper.getEncodingManager()
-                + ", " + graphHopper.getGraphHopperStorage().toDetailsString());
+        logger.info("loaded graph at:{}, data_reader_file:{}, encoded values:{}, {} ints for edge flags, {}",
+                graphHopper.getGraphHopperLocation(), graphHopper.getOSMFile(),
+                graphHopper.getEncodingManager().toEncodedValuesAsString(),
+                graphHopper.getEncodingManager().getIntsForFlags(),
+                graphHopper.getGraphHopperStorage().toDetailsString());
     }
 
-    GraphHopper getGraphHopper() {
+    public GraphHopper getGraphHopper() {
         return graphHopper;
     }
 

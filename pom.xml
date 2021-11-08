@@ -2,17 +2,18 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.graphhopper</groupId>
   <artifactId>graphhopper-reader-postgis</artifactId>
-  <version>0.11-SNAPSHOT</version>
+  <version>4.0</version>
   <name>GraphHopper Reader for PostGIS Data</name>
   
     <properties>      
-        <geotools.version>11.2</geotools.version>
+       <!--  <geotools.version>11.2</geotools.version> --> 
+       <geotools.version>19.0</geotools.version>
     </properties>
     	
     <parent>
         <groupId>com.graphhopper</groupId>
         <artifactId>graphhopper-parent</artifactId>    	
-        <version>0.11-SNAPSHOT</version>
+        <version>4.0</version>
     </parent>
 
     <dependencies>
@@ -36,35 +37,32 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>${slf4j.version}</version>
         </dependency>   
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-log4j12</artifactId>
-            <version>${slf4j.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>log4j</groupId>
             <artifactId>log4j</artifactId>
-            <version>${log4j.version}</version>
             <scope>test</scope>
         </dependency>
-        
         <dependency>
-            <!--  Include the pbf reader for test purposes -->
-            <groupId>com.graphhopper</groupId>
-            <artifactId>graphhopper-reader-osm</artifactId>
-            <version>${project.parent.version}</version>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <!-- <version>4.13.1</version>  -->
             <scope>test</scope>
-        </dependency>        
+        </dependency>
+
+        
     </dependencies>
     <build>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.5.1</version>
+                <!-- <version>3.5.1</version> -->
                 <configuration>
                     <source>1.8</source>
                     <target>1.8</target>
