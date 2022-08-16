@@ -94,7 +94,7 @@ db.tags_to_copy: access_conditional,oneway_conditional
 * To start the GraphHopper server do:
 
 ``` 
-java -jar web/target/graphhopper-web-4.0.jar server config.yml
+java -jar web/target/graphhopper-web-5.3.jar server config.yml
 ```
 
 * If the data in PostgreSQL changes and the graph has to be updated, 
