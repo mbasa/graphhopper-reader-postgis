@@ -446,12 +446,16 @@ public class OSMPostgisReader extends PostgisReader implements TurnCostParser.Ex
         }
 
         // Process the flags using the encoders
+/*
         EncodingManager.AcceptWay acceptWay = new EncodingManager.AcceptWay();
         if (!encodingManager.acceptWay(way, acceptWay)) {
             return;
         }
 
         IntsRef edgeFlags = encodingManager.handleWayTags(way, acceptWay, tempRelFlags);
+*/
+        IntsRef edgeFlags = encodingManager.handleWayTags(way, tempRelFlags);
+
         if (edgeFlags.isEmpty())
             return;
 
